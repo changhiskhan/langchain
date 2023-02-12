@@ -173,7 +173,7 @@ class LanceDataset(VectorStore):
 
         # save index separately since it is not picklable
         lance = dependable_lance_import()
-        lance.write_dataset(self.dataset, str(path / "dataset.lance"))
+        lance.write_dataset(self.dataset, str(path))
 
     @classmethod
     def load_local(cls, uri: str, embeddings: Embeddings) -> LanceDataset:
@@ -185,4 +185,4 @@ class LanceDataset(VectorStore):
             embeddings: Embeddings to use when generating queries
         """
         path = Path(uri)
-        return cls(embeddings.embed_query, str(path / "dataset.lance"))
+        return cls(embeddings.embed_query, str(path))
