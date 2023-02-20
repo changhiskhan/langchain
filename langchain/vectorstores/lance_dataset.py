@@ -186,3 +186,23 @@ class LanceDataset(VectorStore):
         """
         path = Path(uri)
         return cls(embeddings.embed_query, str(path))
+
+
+import lance
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+
+dd = {"tt123456": np.random.randn(96)}
+df = pd.DataFrame({"vector": dd}).reset_index().rename(
+    columns={"index": "content_id"})
+
+schema = pa.schema([pa.field("content_id", pa.string()),
+                    pa.field("vector", pa.list_(pa.float32(), list_size=96))])
+
+dataset = lance.write_dataset(df, "vectors.lance", schema=schema)
+# dataset.create_index("vector", index_type="IVF_PQ", num_partitions=256)
+dataset.to_table(nearest={"column": "vector",
+                          "q": np.random.randn(96),
+                          "k": 10}
+                 ).to_pandas()
