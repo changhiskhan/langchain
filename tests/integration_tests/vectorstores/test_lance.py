@@ -30,4 +30,3 @@ def test_lance_local_save_load(tmp_path: pathlib.Path) -> None:
     output = new_docsearch.similarity_search("foo", k=1)
     expected = docsearch.similarity_search("foo", k=1)
     assert output == expected
-

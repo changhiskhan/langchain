@@ -22,12 +22,13 @@ def dependable_lance_import() -> Any:
     """Import faiss if available, otherwise raise error."""
     try:
         import lance
+        from lance.vector import vec_to_table
     except ImportError:
         raise ValueError(
             "Could not import lance python package. "
             "Please it install it with `pip install pylance` "
         )
-    return lance
+    return lance, vec_to_table
 
 
 class LanceDataset(VectorStore):
@@ -49,7 +50,7 @@ class LanceDataset(VectorStore):
     ):
         """Initialize with necessary components."""
         self.embedding_function = embedding_function
-        lance = dependable_lance_import()
+        lance = dependable_lance_import()[0]
         self.dataset = lance.dataset(uri)
 
     def add_texts(
@@ -111,6 +112,7 @@ class LanceDataset(VectorStore):
         embedding: Embeddings,
         uri: str,
         metadatas: Optional[List[dict]] = None,
+        with_index: bool = False,
     ) -> LanceDataset:
         """Construct Lance wrapper from raw documents.
 
@@ -129,36 +131,31 @@ class LanceDataset(VectorStore):
                 dataset = LanceDataset.from_texts(texts, embeddings)
         """
         embeddings = embedding.embed_documents(texts)
-        ndims = len(embeddings[0])
+        lance, vec_to_table = dependable_lance_import()
 
-        lance = dependable_lance_import()
+        tbl = vec_to_table(embeddings, check_ndim=False)
 
-        # TODO add a DocumentStore interface here that can
-        #      write directly to Lance format
-        schema = pa.schema([
-            pa.field("id", pa.uint32(), False),
-            pa.field("document", pa.utf8(), False),
-            pa.field("metadata", pa.utf8(), True),
-            pa.field("vector", pa.list_(pa.float32(), list_size=ndims), False)
-        ])
-
-        ids = pa.array(range(len(texts)), type=pa.float32())
         docs = pa.array(texts, type=pa.utf8())
+        tbl = tbl.append_column("document", docs)
+
         metadatas = metadatas if metadatas is not None else [None] * len(texts)
         meta = pa.array([json.dumps(m) if m is not None else None for m in metadatas])
+        tbl = tbl.append_column("metadata", meta)
 
-        embeddings = np.array(embeddings, dtype=np.float32).ravel()
-        vectors = pa.FixedSizeListArray.from_arrays(pa.array(embeddings, type=pa.float32()), list_size=ndims)
-        tbl = pa.Table.from_arrays([ids, docs, meta, vectors], schema=schema)
         dataset = lance.write_dataset(tbl, uri)
 
-        # TODO create index later
-        #if len(ids) > 10000:
-        #    num_partitions = np.log(len(ids))/np.log(2)
-        #    dataset.create_index("vector",
-        #                         index_type="IVF_PQ",
-        #                         num_partitions=num_partitions,  # IVF
-        #                         num_sub_vectors=16)  # PQ
+        ndim = tbl["vector"].type.list_size
+        if with_index and len(tbl) > 10000 and ndim % 8 == 0:
+            num_partitions = 2**(int(np.log(len(tbl)))-4)
+            i = 1
+            num_sub_vectors = ndim
+            while num_sub_vectors > 64:
+                num_sub_vectors = num_sub_vectors / (8 * i)
+                i += 1
+            dataset.create_index("vector",
+                                 index_type="IVF_PQ",
+                                 num_partitions=num_partitions,  # IVF
+                                 num_sub_vectors=num_sub_vectors)  # PQ
 
         return cls(embedding.embed_query, uri)
 
@@ -172,7 +169,7 @@ class LanceDataset(VectorStore):
         path.mkdir(exist_ok=True, parents=True)
 
         # save index separately since it is not picklable
-        lance = dependable_lance_import()
+        lance = dependable_lance_import()[0]
         lance.write_dataset(self.dataset.to_table(), str(path))
 
     @classmethod
@@ -186,23 +183,3 @@ class LanceDataset(VectorStore):
         """
         path = Path(uri)
         return cls(embeddings.embed_query, str(path))
-
-
-import lance
-import numpy as np
-import pandas as pd
-import pyarrow as pa
-
-dd = {"tt123456": np.random.randn(96)}
-df = pd.DataFrame({"vector": dd}).reset_index().rename(
-    columns={"index": "content_id"})
-
-schema = pa.schema([pa.field("content_id", pa.string()),
-                    pa.field("vector", pa.list_(pa.float32(), list_size=96))])
-
-dataset = lance.write_dataset(df, "vectors.lance", schema=schema)
-# dataset.create_index("vector", index_type="IVF_PQ", num_partitions=256)
-dataset.to_table(nearest={"column": "vector",
-                          "q": np.random.randn(96),
-                          "k": 10}
-                 ).to_pandas()
