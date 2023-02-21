@@ -139,6 +139,8 @@ class LanceDataset(VectorStore):
         tbl = tbl.append_column("document", docs)
 
         metadatas = metadatas if metadatas is not None else [None] * len(texts)
+        metadatas = [m | {"source": str(m["source"])} for m in metadatas]
+
         meta = pa.array([json.dumps(m) if m is not None else None for m in metadatas])
         tbl = tbl.append_column("metadata", meta)
 
