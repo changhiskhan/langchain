@@ -53,6 +53,17 @@ class LanceDataset(VectorStore):
         lance = dependable_lance_import()[0]
         self.dataset = lance.dataset(uri)
 
+    def __getstate__(self):
+        return {
+            "uri": self.dataset.uri,
+            "embedding_function": self.embedding_function
+        }
+
+    def __setstate__(self, state):
+        lance = dependable_lance_import()[0]
+        self.dataset = lance.dataset(state["uri"])
+        self.embedding_function = state["embedding_function"]
+
     def add_texts(
         self, texts: Iterable[str], metadatas: Optional[List[dict]] = None
     ) -> List[str]:
@@ -70,12 +81,19 @@ class LanceDataset(VectorStore):
         Returns:
             List of Documents most similar to the query and score for each
         """
-        embedding = self.embedding_function(query)
+        embedding = self.embedding_function.embed_query(query)
         q = np.array(embedding, dtype=np.float32)
         tbl = self.dataset.to_table(columns=["document", "metadata"],
-                                    nearest={"column": "vector", "q": q, "k": k, "nprobes": 10, "refine_factor": 10})
-        documents = self._to_documents(tbl["document"].to_numpy(), tbl["metadata"].to_numpy())
-        return list(zip(documents, tbl["score"].to_numpy().tolist()))
+                                    nearest={"column": "vector",
+                                             "q": q,
+                                             "k": k,
+                                             "nprobes": 10,
+                                             "refine_factor": 10})
+        documents = self._to_documents(tbl["document"].to_numpy(),
+                                       tbl["metadata"].to_numpy())
+        rs = list(zip(documents, tbl["score"].to_numpy().tolist()))
+        print(rs)
+        return rs
 
     @staticmethod
     def _to_documents(docarray, metaarray):
