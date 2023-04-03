@@ -179,18 +179,22 @@ class LanceDataset(VectorStore):
 
         return cls(embedding.embed_query, uri)
 
-    def save_local(self, uri: str) -> None:
+    def save_local(self, uri: str, mode: str) -> None:
         """Save Lance dataset to disk
-
         Args:
             uri: where to save the lance dataset
+            mode: str
+                **create** - create a new dataset (raises if uri already exists).
+                **overwrite** - create a new snapshot version
+                **append** - create a new version that is the concat of the input the
+                latest version (raises if uri does not exist)
         """
         path = Path(uri)
         path.mkdir(exist_ok=True, parents=True)
 
         # save index separately since it is not picklable
         lance = dependable_lance_import()[0]
-        lance.write_dataset(self.dataset.to_table(), str(path))
+        lance.write_dataset(self.dataset.to_table(), str(path), mode=mode)
 
     @classmethod
     def load_local(cls, uri: str, embeddings: Embeddings) -> LanceDataset:
